@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+logs_local/
+
+# rebuilt automatically when an experiment runs
+results/cache/
+*.npz.tmp
+results/raw/*_quick.csv
+results/raw/e1_*_*.csv
+
+# LaTeX build files
+report/*.aux
+report/*.log
+report/*.out
+report/*.toc
+report/*.synctex.gz
