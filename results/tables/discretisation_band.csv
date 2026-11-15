@@ -1,0 +1,2 @@
+band_r,band_rule,J_eq_101x51,J_eq_101x101,J_eq_201x51,catch_grid_rel_change,stock_grid_rel_change,band_catch_grids_converged,band_stock_grids_converged
+0.5,max_total,7614.34492420163,5930.322597790162,7614.593971592461,-0.22116443938058655,3.270765815172749e-05,False,False
