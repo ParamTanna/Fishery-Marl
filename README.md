@@ -36,17 +36,19 @@ number in the report can be regenerated from this repository.
 
 ### Results at a glance
 
-![Benchmarks and efficiency versus exploitability](docs/images/fig_bench_frontier.png)
+![Benchmarks, policies, stock paths and efficiency versus exploitability](docs/images/fig_bench_frontier.png)
 
-*Left: the planner, the band of certified equilibria, the stage-greedy profile and the equilibrium under a
-reserve cap. Right: every profile and learner at r = 0.5. The planner is efficient but easy to exploit,
-equilibria cannot be exploited but are inefficient, and the opponent-aware learner (MB-OA) sits near the
-planner.*
+*(a) The planner, the band of certified equilibria, the stage-greedy profile and the equilibrium under a reserve cap,
+for each regrowth rate. (b) Catch policies and (c) expected stock paths at r = 0.5: the planner lets a low stock
+rebuild, while selfish fleets keep fishing it down. (d) Every profile and learner at r = 0.5: the planner is efficient
+but easy to exploit, equilibria cannot be exploited but are inefficient, and the opponent-aware learner (MB-OA) sits
+near the planner.*
 
 ![Learning curves](docs/images/fig_curves.png)
 
-*Efficiency gap during training, mean and 95% interval over 20 seeds. The dotted line is the best certified
-equilibrium.*
+*Learning curves over 20 seeds: efficiency gap (top, the dotted line is the best certified equilibrium) and the
+probability that the stock collapses (bottom). Independent Q-learning collapses the stock; the model-based learners
+rarely (MB-EQ, at most 2 percent of runs) or never (MB-OA) do.*
 
 <img src="docs/images/fig_coop.png" width="420" alt="Cooperation threshold">
 

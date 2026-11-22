@@ -170,15 +170,33 @@ if os.path.exists(og):
           + "\n".join(rows) + "\n\\bottomrule\n\\end{tabular}\n")
 
 # ------------------------------------------------------------------ Figure: benchmarks vs r + exploitability/efficiency frontier
-fig, ax = plt.subplots(1, 2, figsize=(7.0, 2.6))
+fig, axs = plt.subplots(2, 2, figsize=(7.0, 3.9))
+ax = [axs[0, 0], axs[1, 1]]
 rs = np.array(R4)
+# (b) stationary catch policies and (c) expected stock paths at r = 0.5, from E1
+pol = raw("e1_policies.csv"); pth = raw("e1_paths.csv")
+pol = pol[np.isclose(pol.r, 0.5) & (pol.symmetric_only == True)]
+pth = pth[np.isclose(pth.r, 0.5) & (pth.symmetric_only == True)]
+pm, pg = pol[pol.rule == "min_total"].sort_values("s"), pol[pol.rule == "max_total"].sort_values("s")
+axs[0, 1].plot(pm.s, pm.catch_plan, "k-", lw=1.2, label="planner")
+axs[0, 1].plot(pm.s, pm.catch_eq, "-", color="0.35", lw=1.0, label="certified MPE")
+axs[0, 1].plot(pg.s, pg.catch_eq, "--", color="0.55", lw=1.0, label="stage-greedy")
+axs[0, 1].set_xlabel("stock $s$"); axs[0, 1].set_ylabel("total executed catch")
+axs[0, 1].set_title("(b) Catch policies, $r=0.5$"); axs[0, 1].legend(frameon=False, loc="lower right", fontsize=6.5)
+qm, qg = pth[pth.rule == "min_total"].sort_values("t"), pth[pth.rule == "max_total"].sort_values("t")
+axs[1, 0].plot(qm.t, qm.stock_plan, "k-", lw=1.2, label="planner")
+axs[1, 0].plot(qm.t, qm.stock_eq, "-", color="0.35", lw=1.0, label="certified MPE")
+axs[1, 0].plot(qg.t, qg.stock_eq, "--", color="0.55", lw=1.0, label="stage-greedy")
+axs[1, 0].axhline(20, color="0.6", ls=":", lw=0.8)
+axs[1, 0].set_xlabel("season $t$"); axs[1, 0].set_ylabel("expected stock")
+axs[1, 0].set_title("(c) Stock paths from $s_0=K$, $r=0.5$"); axs[1, 0].legend(frameon=False, loc="upper right")
 ax[0].plot(rs, [band[r]["J_plan"] for r in R4], "k*-", label="planner")
 ax[0].fill_between(rs, [band[r]["J_mpe_worst"] for r in R4], [band[r]["J_mpe_best"] for r in R4], color="0.6", alpha=0.6, label="certified MPE band")
 ax[0].plot(rs, [band[r]["J_mpe_best"] for r in R4], "ko-", ms=3, lw=0.8)
 ax[0].plot(rs, [greedy[r]["J"] for r in R4], "x--", color="0.45", label="stage-greedy (not an MPE)")
 ax[0].plot(rs, [band[r]["J_safe_mpe"] for r in R4], "h:", color="0.25", ms=4, label="MPE with reserve cap")
 ax[0].set_xlabel("regrowth rate $r$"); ax[0].set_ylabel("total discounted return $J$"); ax[0].set_title("(a) Exact benchmarks")
-ax[0].legend(frameon=False, loc="lower right")
+ax[0].set_ylim(5600, 13600); ax[0].legend(frameon=False, loc="lower right", fontsize=6.5)
 r0 = 0.5
 pts = [("planner", 0.0, band[r0]["E_plan_s0"]), ("certified MPE", band[r0]["G_best"], 0.0),
        ("stage-greedy", 1 - greedy[r0]["J"] / band[r0]["J_plan"], greedy[r0]["E_s0"])]
@@ -199,28 +217,31 @@ for nm, gx, ex in pts:
     ax[1].annotate(nm, (gx, max(ex, 0.0)), textcoords="offset points", xytext=OFF.get(nm, (4, 3)), fontsize=6.5)
 ax[1].set_xlim(-0.05, 1.0); ax[1].set_ylim(-1, 2e4)
 ax[1].set_yscale("symlog", linthresh=10); ax[1].set_xlabel("efficiency gap $G$ (0 = planner)")
-ax[1].set_ylabel("exploitability $E$"); ax[1].set_title(f"(b) Efficiency vs exploitability, $r={r0}$")
+ax[1].set_ylabel("exploitability $E$"); ax[1].set_title(f"(d) Efficiency vs exploitability, $r={r0}$")
 fig.tight_layout(); fig.savefig(os.path.join(A.out, "media", "fig_bench_frontier.pdf")); fig.savefig(os.path.join(A.images, "fig_bench_frontier.png"), dpi=200); plt.close(fig)
 print("wrote media/fig_bench_frontier.pdf")
 
 # ------------------------------------------------------------------ Figure: learning curves (G vs episode)
 lb = raw("e8_learners_by_rule.csv"); l2 = raw("e2_learners.csv")
 l2 = l2[(l2.gamma == 0.99) & (l2.sigma == 0.1) & (l2.is_sanity == False)]
-fig, ax = plt.subplots(1, 4, figsize=(7.2, 1.9), sharey=True)
+fig, axg = plt.subplots(2, 4, figsize=(7.2, 2.75), sharey="row", sharex="col")
 for k, r in enumerate(R4):
     for lab, df, rule, lr, key in (("IQL", l2, None, "iql", "iql"), ("MB-EQ (cert.)", lb, "min_total", "mb_eq", "mbeq"),
                                    ("MB-OA", l2, None, "mb_oa", "mboa")):
         d = df[(df.learner == lr) & np.isclose(df.r, r)]
         if rule is not None:
             d = d[d.rule == rule]
-        g = d.groupby("episode").G.agg(["mean", "std", "count"]).reset_index()
-        hw = stats.t.ppf(0.975, g["count"] - 1) * g["std"] / np.sqrt(g["count"])
         col, mk = MK[key]
-        ax[k].plot(g.episode + 1, g["mean"], color=col, marker=mk, ms=2.5, lw=0.9, label=lab)
-        ax[k].fill_between(g.episode + 1, g["mean"] - hw, g["mean"] + hw, color=col, alpha=0.15, lw=0)
-    ax[k].axhline(band[r]["G_best"], color="0.4", ls=":", lw=0.8)
-    ax[k].set_xscale("log"); ax[k].set_title(f"$r={r}$"); ax[k].set_xlabel("episode")
-ax[0].set_ylabel("efficiency gap $G$"); ax[0].legend(frameon=False, loc="center left")
+        for row, metric in ((0, "G"), (1, "collapse_50")):
+            g = d.groupby("episode")[metric].agg(["mean", "std", "count"]).reset_index()
+            hw = stats.t.ppf(0.975, g["count"] - 1) * g["std"] / np.sqrt(g["count"])
+            axg[row, k].plot(g.episode + 1, g["mean"], color=col, marker=mk, ms=2.5, lw=0.9, label=lab)
+            axg[row, k].fill_between(g.episode + 1, g["mean"] - hw, g["mean"] + hw, color=col, alpha=0.15, lw=0)
+    axg[0, k].axhline(band[r]["G_best"], color="0.4", ls=":", lw=0.8)
+    axg[0, k].set_title(f"$r={r}$"); axg[1, k].set_xscale("log"); axg[1, k].set_xlabel("episode")
+axg[0, 0].set_ylabel("efficiency gap $G$"); axg[1, 0].set_ylabel("collapse prob. $C_{50}$")
+axg[0, 0].legend(frameon=False, loc="center left", fontsize=6.5)
+ax = axg[0]
 fig.tight_layout(); fig.savefig(os.path.join(A.out, "media", "fig_curves.pdf")); fig.savefig(os.path.join(A.images, "fig_curves.png"), dpi=200); plt.close(fig)
 print("wrote media/fig_curves.pdf")
 
@@ -251,5 +272,9 @@ nums["e6_mboa_train_collapse_by_nwarm"] = {int(k): [float(v.min()), float(v.mean
 nums["e6_max_G_spread_replan_prior"] = e6s.groupby(["learner", "n_warm", "r"]).G_mean.agg(lambda s: s.max() - s.min()).groupby(level=0).max().to_dict()
 nums["e3_warmup_collapse_range"] = [float(tab("tab03_e3_unknown_r.csv").collapse_50_train_warm_mean.min()),
                                     float(tab("tab03_e3_unknown_r.csv").collapse_50_train_warm_mean.max())]
+e2all = raw("e2_summary.csv"); e2all = e2all[e2all.r.isin(R4) & (e2all.is_sanity == False)]
+nums["e2_collapse_by_gamma_sigma_r_pooled"] = {
+    f"{lr} gamma={g} sigma={s}": float(v) for (lr, g, s), v in
+    e2all[e2all.learner.isin(["mb_eq", "mb_oa"])].groupby(["learner", "gamma", "sigma"]).collapse_50_mean.mean().items()}
 json.dump(nums, open(os.path.join(A.out, "tables", "numbers.json"), "w"), indent=1)
-print(json.dumps(nums, indent=1))
+print("wrote tables/numbers.json")

@@ -1,0 +1,94 @@
+%------------------------------------------------------------
+\section{Methodology}
+\label{sec:method}
+%------------------------------------------------------------
+We use $K=100$, $p=10$, $c=2/3$ ($p/c=15$), $\gamma=0.99$, $\sigma=0.1$, $\delta=0.2$, $\kappa=0.05$, $T=50$, $s_0=K$,
+and $r\in\{0.5,0.6,0.7,0.8\}$, with $r=1.5$ as a no-tragedy control ($|\mathcal N|\,p/c=30>rK/4$ for every $r\le0.8$).
+\textbf{Changes from the plan of Section~\ref{sec:solutions}:} the equilibrium is computed as a stationary fixed point
+with an exact certificate rather than by finite-horizon backward induction; all stage equilibria are reported (review
+feedback 2); an opponent-aware learner and a cross-play tournament were added (review feedback 1); the centralised critic
+is tabular; the exploration schedule was tuned on seeds 0--2 rather than swept; the neural actor-critic and the
+three-fleet case, both planned as optional extensions, were not run. Experiments are numbered E0--E12 as in the
+repository README.
+
+\subsection{Exact benchmarks}
+Stock and catch are discretised on uniform grids over $[0,K]$ with 101 and 51 points ($\Delta s=1$, $\Delta a=2$).
+$\E[V(s')]$ uses 21-node Gauss--Hermite quadrature over $\xi$, with the probability mass above $K$ placed on $s'=K$
+analytically, and linear interpolation between stock nodes. The \textbf{planner} is a single-agent MDP over joint catches
+($51^2$ actions per state), solved by Howard policy iteration~\cite{howard1960} with exact policy evaluation.
+
+\textbf{Equilibria.} Given continuation values $V_i$, the stage game at stock $s$ is the bimatrix
+$U_i(s,a^1,a^2)=R_i(s,a)+\gamma\,\E[V_i(s')]$. Algorithm~1 alternates between choosing, in every state, one stage
+equilibrium by a selection rule and evaluating the resulting stationary profile exactly, which searches directly for a
+stationary MPE of the infinite-horizon game. Seven rules are used: maximum total payoff (the rule planned in
+Section~\ref{sec:formulation}), minimum total payoff, payoff dominance, risk dominance~\cite{harsanyi1988}, maximum
+catch, continuity with the previous iterate, and seeded random choice. Lemke--Howson~\cite{lemke1964} is used only on
+small grids (the Levhari--Mirman test); on the fishery grid, enumeration is exact and cheaper. Every returned profile
+$\pi$ is then \textbf{certified} against the definition of an MPE: for each fleet the exact best response to $\pi_{-i}$
+is computed by Howard policy iteration, giving
+\begin{equation}\label{eq:cert}
+E(s)=\max_{\pi_i}V_i^{(\pi_i,\pi_{-i})}(s)-V_i^{\pi}(s)\quad\text{at every stock } s,
+\end{equation}
+and $\pi$ is accepted when $E(s)\le1$ everywhere or $E\le10^{-3}$ of the fleet's value. With $\Pi^*$ the set of
+certified equilibria, the Price of Anarchy and the Price of Stability~\cite{koutsoupias1999,anshelevich2004} are
+\begin{equation}\label{eq:poa}
+\mathrm{PoA}=\frac{\sum_i J_i(\pi^{\mathrm{plan}})}{\min_{\pi^*\in\Pi^*}\sum_i J_i(\pi^*)},\qquad
+\mathrm{PoS}=\frac{\sum_i J_i(\pi^{\mathrm{plan}})}{\max_{\pi^*\in\Pi^*}\sum_i J_i(\pi^*)}.
+\end{equation}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{p{15.5cm}}
+\toprule
+\textbf{Algorithm 1.} Symmetric MPE by selection and evaluation (selection rule $\rho$) \\
+\midrule
+1: $V\leftarrow 0$, $\pi\leftarrow$ zero catch \\
+2: \textbf{repeat} for each stock $s$: build $U(s,\cdot,\cdot)$ from $V$; $\mathcal E(s)\leftarrow$ pure NE $\cup$ symmetric 2-support mixed NE; $\pi(s)\leftarrow\rho(\mathcal E(s),\pi)$; \\
+\quad\ \ then $V\leftarrow$ exact value of $(\pi,\pi)$ \\
+3: \textbf{until} $\pi$ is unchanged, or exploitability has not fallen for 8 rounds (then keep the least exploitable $\pi$) \\
+4: certify $\pi$ with Eq.~\eqref{eq:cert} at every stock \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Learners}
+All learners act on the same grids and train in 50-season episodes from $s_0=K$, bootstrapping from the value of the
+last stock (Section~\ref{sec:solutions}).
+\textbf{IQL}: tabular Q-learning over (stock, own catch), $\varepsilon$-greedy with $\varepsilon$ decaying from 0.5 to
+0.02, 5000 episodes.
+\textbf{MB-EQ} (model-based, plays the equilibrium): the Bayesian belief of Section~\ref{sec:formulation} on 191 values of
+$r\in[0.1,2]$; five exploratory warm-up seasons per episode, then the precomputed equilibrium policy at the posterior mean,
+interpolated between the solved values of $r$ and re-planned every 5 seasons; 500 episodes.
+\textbf{MB-OA} (model-based, opponent-aware; review feedback 1): the same belief plus a kernel-smoothed model of the other
+fleet's \emph{request} as a function of stock (bandwidth 5), recovered from executed catches by inverting the rationing
+rule; it plays the exact best response to that model in the estimated game (Howard policy iteration, re-planned every 5
+seasons); 200 episodes.
+\textbf{Team baselines}: Team-IQL is IQL on the total reward; Team-Planner plays the planner policy at the posterior mean
+(an oracle reference).
+\textbf{Joint-action critic (CTDE)}: tabular $Q(s,a^1,a^2)$ learned from both fleets' catches during training; each fleet
+executes its own action against a model of the other~\cite{claus1998}.
+\textbf{Memory-one}: tabular Q-learning whose state adds a regime bit that turns on when the other fleet's last catch
+exceeded $\mathrm{clip}(0.1\,s,2,10)$.
+
+\subsection{Safe version, cooperation threshold and evaluation}
+\textbf{Safe version.} Each fleet's catch is capped at $a^i\le\max(0,0.5(s-S_{\mathrm{res}}))$, so the joint catch never
+pushes the stock below $S_{\mathrm{res}}$; $S_{\mathrm{res}}=25$ is the smallest value meeting $C_{50}\le\kappa$ on
+tuning seeds $\{0,1,2\}$. Equilibria of the capped game are solved and certified with best responses restricted to legal
+catches.
+
+\textbf{Cooperation threshold.} Let $a^{\mathrm{coop}}(s)$ be the symmetric planner's catch (both fleets take the same
+catch, chosen to maximise the total return) and let the punishment be a certified MPE $\pi^*$. Because the punishment
+phase is itself an MPE, the one-shot deviation principle~\cite{fudenberg1986,abreu1988} says the grim trigger of
+Section~\ref{sec:prelim} is a subgame-perfect equilibrium if and only if, at every stock and for each fleet,
+\begin{equation}\label{eq:grim}
+V_i^{\mathrm{coop}}(s)\ \ge\ \max_{a^i}\Big[R_i\big(s,a^i,a^{\mathrm{coop}}_{-i}(s)\big)+\gamma\,\E\big[V_i^{\pi^*}(s')\big]\Big].
+\end{equation}
+We evaluate Eq.~\eqref{eq:grim} exactly on a grid of $\gamma$, re-solving $\pi^*$ at each $\gamma$, and refine the
+smallest $\gamma$ at which it holds, $\gamma^*(r)$, by bisection.
+
+\textbf{Evaluation.} Hyperparameters were tuned on seeds $\{0,1,2\}$ and frozen; every reported number uses seeds 10--29
+(20 seeds) with 95\% $t$-intervals. $J$ is computed by exact policy evaluation and by 500 Monte Carlo rollouts with
+common random numbers, $E$ by exact best response, and $C_{50}$ by Monte Carlo. The cost of learning is reported per
+episode, $\bar L_\tau=L_\tau/\tau$, against the planner's 50-season return. Cross-play differences are paired (same seed,
+same noise) and tested per $r$ with Holm's correction~\cite{holm1979}.

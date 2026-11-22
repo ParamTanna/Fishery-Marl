@@ -1,0 +1,299 @@
+\documentclass{article}
+
+\usepackage{PRIMEarxiv}
+
+\usepackage[utf8]{inputenc} % allow utf-8 input
+\usepackage[T1]{fontenc}    % use 8-bit T1 fonts
+\usepackage{hyperref}       % hyperlinks
+\usepackage{url}            % simple URL typesetting
+\usepackage{booktabs}       % professional-quality tables
+\usepackage{amsfonts}       % blackboard math symbols
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{nicefrac}       % compact symbols for 1/2, etc.
+\usepackage{microtype}      % microtypography
+\usepackage{fancyhdr}       % header
+\usepackage{graphicx}       % graphics
+\usepackage{float}          % [H] placement for the contribution table
+\usepackage{capt-of}        % captions for side-by-side figure and table
+\graphicspath{{media/}}     % organize your images and other figures under media/ folder
+
+% Shorthand
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\E}{\mathbb{E}}
+
+%Header
+\pagestyle{fancy}
+\thispagestyle{empty}
+\rhead{ \textit{ }}
+
+% Update your Headers here
+\fancyhead[LO]{Multi-Agent RL in a Fishery Markov Game}
+
+%% Title
+\title{Multi-Agent Reinforcement Learning in a Fishery Markov Game with Unknown Regrowth}
+
+\author{
+  Panchal Heet Chirag, Param Tanna, Mehul Prakash Parakh, Pawar Sai Tejeshwar \\
+  CS-329 Multi-Agent Systems \\
+  IIT Gandhinagar \\
+  \texttt{\{heet.panchal, param.tanna, mehul.parakh, pawar.sai\}@iitgn.ac.in} \\
+  Code, data and results: \url{https://github.com/ParamTanna/Fishery-Marl} \\
+}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Two fishing fleets share one lake. Each season every fleet decides how much to catch, and the fish that are left regrow before the next season, at a rate the fleets do not know, so they must learn how to harvest while the other fleet learns as well. We model this as a Markov game with an unknown transition kernel, compute the social planner's solution and the Markov perfect equilibria exactly, certifying every equilibrium by an exact best response, and measure how far learning fleets end up from both, what happens to the fish stock, and what learning costs. The tragedy is real but moderate: the Price of Anarchy is 1.16 at $r=0.5$ and 1.04 at $r=0.8$. Independent Q-learners end far below any equilibrium and collapse the stock in almost every run. A Bayesian model-based fleet reaches the equilibrium it plays, and a fleet that best-responds to a learned model of the other settles near the planner without collapse and gains $+1436.5\pm331.3$ against an over-harvester. A reserve cap removes collapse but costs the equilibrium 142--563 and the planner nothing. Cooperation at the planner's catch is subgame perfect under a grim trigger for $\gamma\ge\gamma^*\approx0.68$--$0.77$, yet memory-one learners do not discover it.
+\end{abstract}
+
+\keywords{Multi-agent reinforcement learning \and Markov games \and Tragedy of the commons \and Learning under uncertainty}
+
+%------------------------------------------------------------
+\section{Introduction}
+%------------------------------------------------------------
+Shared resources such as fisheries, groundwater and grazing land are often overused, even when every user would be better off with restraint. Hardin \cite{hardin1968} called this the tragedy of the commons: each user gets the full benefit of taking more but bears only a share of the damage, so self-interested users end up worse off than a planner could make them. Ostrom \cite{ostrom1990} showed that real communities sometimes avoid this outcome, which raises the question of when restraint can emerge among the users themselves.
+
+Fish regrow, so what is caught today changes what is available tomorrow. The natural model is therefore a Markov game \cite{littman1994}, the multi-agent version of a Markov decision process (also called a stochastic game \cite{shapley1953}). The classic ``Great Fish War'' \cite{levhari1980} studies such a game, but it assumes that everyone knows the growth law and can compute equilibrium strategies. Real fleets observe only the stock and the catches, and they learn by experience.
+
+This makes the problem one of multi-agent reinforcement learning (MARL) \cite{zhang2021}. From the point of view of one agent the others are part of the environment and keep changing as they learn, so the environment is not stationary and the convergence guarantee of Q-learning \cite{watkins1992} no longer applies to independent learners \cite{tan1993}. Common-pool resources have been studied with deep agents in rich environments \cite{leibo2017,perolat2017}; we instead use a small model whose benchmarks can be computed exactly, so that we can tell how good the learned behaviour really is.
+
+\medskip
+\noindent\textbf{Research question.} \textit{When several reinforcement learning agents share a renewable resource whose regrowth rate they do not know, how close do their learned policies get to the socially best harvest, what happens to the fish stock, and what does the learning cost?}
+\medskip
+
+We break this into four sub-questions.
+\begin{enumerate}
+\item \textbf{Where do learners settle?} Do independent learners approach the equilibrium, the planner's solution, or something else, and how does this depend on $r$, the number of fleets and $\gamma$?
+\item \textbf{Does the learning method matter?} Do centralised critics or explicit models help compared with independent learners, in samples needed and in final return?
+\item \textbf{What does not knowing $r$ do?} Do fleets over- or under-harvest compared with fleets that know $r$, and how large is the risk of collapse, including during exploration?
+\item \textbf{Can cooperation emerge?} If policies can react to the previous stock and catches (memory-one policies $\pi_i(a^i\mid s_t,s_{t-1},\hat a_{t-1})$), do learners find threats and punishments, such as a grim trigger, that sustain restraint?
+\end{enumerate}
+Sections~\ref{sec:prelim} and~\ref{sec:formulation} define the game, Section~\ref{sec:solutions} recalls the plan, Sections~\ref{sec:method} and~\ref{sec:results} give the methods and results, and Section~\ref{sec:contrib} the division of work.
+
+%------------------------------------------------------------
+\section{Preliminaries}
+\label{sec:prelim}
+%------------------------------------------------------------
+\paragraph{Markov game.} A Markov game is a tuple $\langle \mathcal N, \mathcal S, \mathcal A, P, R, \gamma\rangle$. In each round the agents $\mathcal N$ see the state $s\in\mathcal S$, each agent $i$ picks an action $a^i$, giving the joint action $a=(a^1,\dots,a^{|\mathcal N|})$, and receives a reward $R_i(s,a)$. The next state is drawn from $P(s'\mid s,a)$ and future rewards are discounted by $\gamma\in(0,1)$. A policy $\pi_i(a^i\mid s)$ says how agent $i$ acts in each state, and $\pi=(\pi_1,\dots,\pi_{|\mathcal N|})$ is a joint policy.
+
+\paragraph{Values and solution concepts.} Let $\rho_0$ be the initial-stock distribution. For $\pi=(\pi_i,\pi_{-i})$,
+\begin{equation}
+V_i^{\pi}(s)=\mathbb{E}_{\pi}\Big[\sum_{t\ge0}\gamma^{t}R_i(s_t,a_t)\,\Big|\,s_0=s\Big],\qquad
+J_i(\pi)=\mathbb{E}_{s\sim\rho_0}\big[V_i^{\pi}(s)\big].
+\end{equation}
+$\pi^{*}$ is a \emph{Nash equilibrium} if $J_i(\pi_i,\pi^{*}_{-i})\le J_i(\pi^{*})$ for all $i$ and $\pi_i$, and a \emph{Markov perfect equilibrium} (MPE)~\cite{maskin2001} if each $\pi^{*}_i$ depends only on the current state and
+\begin{equation}
+V_i^{(\pi_i,\pi^{*}_{-i})}(s)\le V_i^{\pi^{*}}(s)\qquad\forall\, i,\ \forall\,\pi_i,\ \forall\, s\in\mathcal S,
+\end{equation}
+i.e.\ no agent gains by deviating from \emph{any} state. A planner policy is $\pi^{\mathrm{plan}}\in\arg\max_{\pi}\sum_{i}J_i(\pi)$; the gap between $\sum_i J_i(\pi^{\mathrm{plan}})$ and $\sum_i J_i(\pi^{*})$ is the loss caused by selfishness.
+
+\paragraph{Learning with an unknown kernel.} If $P$ depends on an unknown parameter $r$, an agent can keep a belief $b_t(r)$ and update it after each transition by Bayes' rule,
+\begin{equation}
+b_{t+1}(r)\;\propto\;P_r(s_{t+1}\mid s_t,a_t)\,b_t(r),
+\end{equation}
+and a good policy conditions on both the state and the belief, $\pi(a\mid s,b)$.
+
+\paragraph{Memory and punishment.} A policy that sees only the current state cannot react to what the others did. Memory-one policies $\pi_i(a^i\mid s_t,s_{t-1},\hat a_{t-1})$ also see the previous stock and joint executed catch. A classic example is the grim trigger: take the planner's share as long as everyone has done so, and switch to the selfish equilibrium forever after the first deviation. Whether such a threat sustains restraint depends on how patient the agents are, that is, on $\gamma$.
+
+\paragraph{Learning by interaction.} \emph{Independent Q-learning} treats the other agents as part of the environment \cite{tan1993,watkins1992}; \emph{actor-critic} methods follow the gradient of a parametrised policy \cite{sutton2018}; \emph{centralised training with decentralised execution} lets the critic see all agents' actions during training \cite{lowe2017}; \emph{model-based} learners estimate the unknown parameter and plan in the estimated game. Nash Q-learning~\cite{hu2003} is a model-free relative that plays a Nash equilibrium of learned joint-action values.
+
+%------------------------------------------------------------
+\section{Problem Formulation}
+\label{sec:formulation}
+%------------------------------------------------------------
+\paragraph{Agents, state and actions.} $\mathcal N=\{1,2\}$ are the fishing fleets and $\mathcal S=[0,K]$ is the fish stock at the start of a season. Each fleet requests a catch $a^i\in[0,K]$; if the requests exceed the stock they are scaled down proportionally,
+\begin{equation}
+\hat a^i(s,a)=a^i\cdot\min\Big\{1,\ \frac{s}{\sum_j a^j}\Big\},
+\end{equation}
+with $\hat a^i=0$ if nobody requests anything, so $\sum_i\hat a^i\le s$. When the lake is scarce a larger request earns a larger share, which creates a race to fish.
+
+\paragraph{Reward.} $R_i(s,a)=p\,\hat a^i-\frac{c}{2}\,(\hat a^i)^2$ with $p,c>0$: revenue minus a convex effort cost, which keeps the best catch from being ``take everything''.
+
+\paragraph{Transition (unknown to the agents).} The fish left after fishing, $x=s-\sum_i \hat a^i$, regrow logistically and are hit by lognormal noise with mean one:
+\begin{equation}
+s'=\min\Big\{K,\ \omega\cdot g_r(x)\Big\},\qquad g_r(x)=x+r\,x\Big(1-\frac{x}{K}\Big),\qquad \omega=\exp\big(\sigma\xi-\tfrac{\sigma^2}{2}\big),\ \ \xi\sim\mathcal N(0,1).
+\end{equation}
+
+\paragraph{Known and unknown.} Known: $K,p,c,\sigma,\gamma,\rho_0$. Observed each season: $s_t$, all executed catches and the own reward. Unknown: the regrowth rate $r$ and the other fleet's policy. Since one noiseless transition reveals $r$, all unknown-$r$ experiments use $\sigma>0$. Only the model-based learner is given the form of $P$; it updates a public belief over $r$ from each pair $(x_t,s_{t+1})$ with the lognormal density for $s_{t+1}<K$ and the censored mass $\ell_r=1-\Phi\big((\log(K/g_r(x_t))+\sigma^2/2)/\sigma\big)$ at $s_{t+1}=K$.
+
+\paragraph{Benchmarks (known $r$).} $\pi^{\mathrm{plan}}\in\arg\max_{\pi}\sum_i J_i(\pi)$ and $\pi^{\mathrm{eq}}$, a symmetric Markov perfect equilibrium; when several exist we report all of them. A fleet does not count the damage its catch does to the other through next season's stock, so we expect equilibrium catches to be at least the planner's and the long-run stock to be lower; this is not guaranteed in general~\cite{dutta1993}.
+
+\paragraph{Learning problem (unknown $r$).} Fleet $i$ maps its history to a policy $\pi^t_i$. With $\pi^{\mathrm{ref}}\in\{\pi^{\mathrm{eq}},\pi^{\mathrm{plan}}\}$ and $t$ counting seasons over training, we measure
+\begin{align}
+G(\pi^t)&=1-\frac{\sum_i J_i(\pi^t)}{\sum_i J_i(\pi^{\mathrm{plan}})} &&\text{(efficiency gap)}\\
+E(\pi^t)&=\max_{i}\Big[\max_{\pi_i}J_i(\pi_i,\pi^t_{-i})-J_i(\pi^t)\Big] &&\text{(distance to equilibrium)}\\
+C_T(\pi^t)&=\Pr\nolimits_{\pi^t}\Big(\min_{0\le k\le T}s_k<\delta K\Big) &&\text{(collapse probability)}\\
+L_\tau&=\sum_{t=0}^{\tau}\Big[\sum_i J_i(\pi^{\mathrm{ref}})-\sum_i J_i(\pi^t)\Big] &&\text{(cost of learning)}
+\end{align}
+and the long-run stock. The \emph{safe version} solves the same problems subject to $C_T(\pi)\le\kappa$ for a finite horizon $T$; over an infinite horizon a dip below $\delta K$ has probability one under every policy when $\sigma>0$.
+
+\paragraph{Remark.} A fleet's one-season optimum is $\hat a^i=p/c$ and the largest sustainable total catch is $rK/4$ for $r\le2$. If $|\mathcal N|\,p/c\le rK/4$ selfishness costs nothing, so we choose $|\mathcal N|\,p/c>rK/4$: $r$ decides whether a tragedy exists at all.
+
+%------------------------------------------------------------
+\section{Proposed Solutions}
+\label{sec:solutions}
+%------------------------------------------------------------
+At the project review we planned the following. (i) A fishery environment with the proportional rationing rule and exact benchmarks for known $r$: the planner by dynamic programming and the equilibrium by solving a small game between the fleets in every state (pure profiles first, Lemke--Howson otherwise), validated on the Levhari--Mirman specification~\cite{levhari1980} (reward $\log\hat a^i$, growth $s'=x^{\alpha}$, $\sigma=0$), whose planner harvests $(1-\alpha\gamma)s$ and whose symmetric equilibrium has each of $n$ fleets harvest $\frac{1-\alpha\gamma}{n-(n-1)\alpha\gamma}\,s$, to within 1\%. (ii) Learners: independent Q-learning, independent actor-critic, a centralised critic, a model-based learner that keeps a belief over $r$ and plays the equilibrium of the estimated game, and a team-reward baseline. (iii) Experiments with 50-season episodes from $s_0=K$ (a truncation: learners bootstrap from the last stock), varying $r$, the number of fleets, $\gamma$, $\sigma$, the learning method, exploration and the amount of data, over at least 10 seeds with 95\% confidence intervals, and tracking collapse during training as well as after it. (iv) A memory-one test: force a one-season over-harvest and check whether the other fleet punishes and then returns to restraint. The neural learners, three fleets and the memory experiments were extensions, to be dropped first if time ran short. The project succeeds if every research question is answered with these measurements, whether or not the learners reach the benchmarks.
+
+\input{sections/methodology}
+
+%------------------------------------------------------------
+\section{Results}
+\label{sec:results}
+%------------------------------------------------------------
+\input{sections/results}
+
+%------------------------------------------------------------
+\section{Contribution}
+\label{sec:contrib}
+%------------------------------------------------------------
+Table~\ref{tab:work} lists each member's tasks from the project review, whether they were fulfilled, and what each member delivered. All members took part in writing and reviewing the report. The repository, with a README, run instructions and screenshots of the results, is at \url{https://github.com/ParamTanna/Fishery-Marl}; every table and figure in Section~\ref{sec:results} is regenerated from the raw results by the scripts in it.
+
+\begin{table}[H]
+  \centering
+  \caption{Division of work and fulfilment.}
+  \label{tab:work}
+  \small
+  \begin{tabular}{p{3.0cm}p{5.0cm}p{1.2cm}p{5.5cm}}
+    \toprule
+    Member & Tasks (project review) & Fulfilled & Delivered \\
+    \midrule
+    Panchal Heet Chirag & Environment and planner: fishery dynamics, rationing rule, discretisation, planner dynamic program, closed-form check & Yes & environment and quadrature, planner, Levhari--Mirman check (0.95\%), regime sweep and benchmark runs (E0, E1) \\
+    Param Tanna & Equilibrium solvers: backward induction, stage-game solver, distance-to-equilibrium measure, cooperation and punishment analysis & Yes & equilibrium solver with seven selection rules, exact best responses and certificate, Price of Anarchy and Stability, safety and cooperation analysis (E8, E10--E12), integration of the results pipeline, repository and report \\
+    Mehul Prakash Parakh & Tabular and model-based learners: independent Q-learning, estimation of $r$ and beliefs & Yes & IQL, Bayesian belief, MB-EQ, the opponent-aware MB-OA (review feedback 1), tuning, and learning experiments (E2--E4, E6, E7) \\
+    Pawar Sai Tejeshwar & Neural learners and experiments: actor-critic, centralised critic, team-reward baseline, experiment runs and plots & Partly & team baselines (E5) and tabular joint-action critic (E9); the neural actor-critic was not done \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+%Bibliography
+{\small
+\begin{thebibliography}{99}
+\setlength{\itemsep}{0.5pt}
+
+\bibitem{hardin1968}
+G.~Hardin.
+\newblock The tragedy of the commons.
+\newblock \textit{Science}, 162(3859):1243--1248, 1968.
+
+\bibitem{ostrom1990}
+E.~Ostrom.
+\newblock \textit{Governing the Commons: The Evolution of Institutions for Collective Action}.
+\newblock Cambridge University Press, 1990.
+
+\bibitem{shapley1953}
+L.~S. Shapley.
+\newblock Stochastic games.
+\newblock \textit{Proceedings of the National Academy of Sciences}, 39(10):1095--1100, 1953.
+
+\bibitem{levhari1980}
+D.~Levhari and L.~J. Mirman.
+\newblock The great fish war: an example using a dynamic Cournot-Nash solution.
+\newblock \textit{The Bell Journal of Economics}, 11(1):322--334, 1980.
+
+\bibitem{littman1994}
+M.~L. Littman.
+\newblock Markov games as a framework for multi-agent reinforcement learning.
+\newblock In \textit{Proceedings of ICML}, 1994.
+
+\bibitem{tan1993}
+M.~Tan.
+\newblock Multi-agent reinforcement learning: independent vs. cooperative agents.
+\newblock In \textit{Proceedings of ICML}, 1993.
+
+\bibitem{watkins1992}
+C.~J. C.~H. Watkins and P.~Dayan.
+\newblock Q-learning.
+\newblock \textit{Machine Learning}, 8(3-4):279--292, 1992.
+
+\bibitem{hu2003}
+J.~Hu and M.~P. Wellman.
+\newblock Nash Q-learning for general-sum stochastic games.
+\newblock \textit{Journal of Machine Learning Research}, 4:1039--1069, 2003.
+
+\bibitem{zhang2021}
+K.~Zhang, Z.~Yang, and T.~Ba\c{s}ar.
+\newblock Multi-agent reinforcement learning: a selective overview of theories and algorithms.
+\newblock In \textit{Handbook of Reinforcement Learning and Control}, Springer, 2021.
+
+\bibitem{lowe2017}
+R.~Lowe, Y.~Wu, A.~Tamar, J.~Harb, P.~Abbeel, and I.~Mordatch.
+\newblock Multi-agent actor-critic for mixed cooperative-competitive environments.
+\newblock In \textit{Advances in Neural Information Processing Systems (NeurIPS)}, 2017.
+
+\bibitem{sutton2018}
+R.~S. Sutton and A.~G. Barto.
+\newblock \textit{Reinforcement Learning: An Introduction}.
+\newblock MIT Press, 2nd edition, 2018.
+
+\bibitem{leibo2017}
+J.~Z. Leibo, V.~Zambaldi, M.~Lanctot, J.~Marecki, and T.~Graepel.
+\newblock Multi-agent reinforcement learning in sequential social dilemmas.
+\newblock In \textit{Proceedings of AAMAS}, 2017.
+
+\bibitem{perolat2017}
+J.~Perolat, J.~Z. Leibo, V.~Zambaldi, C.~Beattie, K.~Tuyls, and T.~Graepel.
+\newblock A multi-agent reinforcement learning model of common-pool resource appropriation.
+\newblock In \textit{Advances in Neural Information Processing Systems (NeurIPS)}, 2017.
+
+\bibitem{maskin2001}
+E.~Maskin and J.~Tirole.
+\newblock Markov perfect equilibrium: I. Observable actions.
+\newblock \textit{Journal of Economic Theory}, 100(2):191--219, 2001.
+
+\bibitem{dutta1993}
+P.~K. Dutta and R.~K. Sundaram.
+\newblock The tragedy of the commons?
+\newblock \textit{Economic Theory}, 3(3):413--426, 1993.
+
+\bibitem{howard1960}
+R.~A. Howard.
+\newblock \textit{Dynamic Programming and Markov Processes}.
+\newblock MIT Press, 1960.
+
+\bibitem{lemke1964}
+C.~E. Lemke and J.~T. Howson.
+\newblock Equilibrium points of bimatrix games.
+\newblock \textit{Journal of the Society for Industrial and Applied Mathematics}, 12(2):413--423, 1964.
+
+\bibitem{harsanyi1988}
+J.~C. Harsanyi and R.~Selten.
+\newblock \textit{A General Theory of Equilibrium Selection in Games}.
+\newblock MIT Press, 1988.
+
+\bibitem{koutsoupias1999}
+E.~Koutsoupias and C.~Papadimitriou.
+\newblock Worst-case equilibria.
+\newblock In \textit{Proceedings of STACS}, pages 404--413, 1999.
+
+\bibitem{anshelevich2004}
+E.~Anshelevich, A.~Dasgupta, J.~Kleinberg, {\'E}.~Tardos, T.~Wexler, and T.~Roughgarden.
+\newblock The price of stability for network design with fair cost allocation.
+\newblock In \textit{Proceedings of FOCS}, pages 295--304, 2004.
+
+\bibitem{fudenberg1986}
+D.~Fudenberg and E.~Maskin.
+\newblock The folk theorem in repeated games with discounting or with incomplete information.
+\newblock \textit{Econometrica}, 54(3):533--554, 1986.
+
+\bibitem{abreu1988}
+D.~Abreu.
+\newblock On the theory of infinitely repeated games with discounting.
+\newblock \textit{Econometrica}, 56(2):383--396, 1988.
+
+\bibitem{claus1998}
+C.~Claus and C.~Boutilier.
+\newblock The dynamics of reinforcement learning in cooperative multiagent systems.
+\newblock In \textit{Proceedings of AAAI}, pages 746--752, 1998.
+
+\bibitem{holm1979}
+S.~Holm.
+\newblock A simple sequentially rejective multiple test procedure.
+\newblock \textit{Scandinavian Journal of Statistics}, 6(2):65--70, 1979.
+
+\end{thebibliography}
+}
+
+\end{document}
