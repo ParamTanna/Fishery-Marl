@@ -218,7 +218,7 @@ for nm, gx, ex in pts:
 ax[1].set_xlim(-0.05, 1.0); ax[1].set_ylim(-1, 2e4)
 ax[1].set_yscale("symlog", linthresh=10); ax[1].set_xlabel("efficiency gap $G$ (0 = planner)")
 ax[1].set_ylabel("exploitability $E$"); ax[1].set_title(f"(d) Efficiency vs exploitability, $r={r0}$")
-fig.tight_layout(); fig.savefig(os.path.join(A.out, "media", "fig_bench_frontier.pdf")); fig.savefig(os.path.join(A.images, "fig_bench_frontier.png"), dpi=200); plt.close(fig)
+fig.tight_layout(); fig.savefig(os.path.join(A.out, "media", "fig_bench_frontier.pdf"), metadata={"CreationDate": None}); fig.savefig(os.path.join(A.images, "fig_bench_frontier.png"), dpi=200); plt.close(fig)
 print("wrote media/fig_bench_frontier.pdf")
 
 # ------------------------------------------------------------------ Figure: learning curves (G vs episode)
@@ -242,7 +242,7 @@ for k, r in enumerate(R4):
 axg[0, 0].set_ylabel("efficiency gap $G$"); axg[1, 0].set_ylabel("collapse prob. $C_{50}$")
 axg[0, 0].legend(frameon=False, loc="center left", fontsize=6.5)
 ax = axg[0]
-fig.tight_layout(); fig.savefig(os.path.join(A.out, "media", "fig_curves.pdf")); fig.savefig(os.path.join(A.images, "fig_curves.png"), dpi=200); plt.close(fig)
+fig.tight_layout(); fig.savefig(os.path.join(A.out, "media", "fig_curves.pdf"), metadata={"CreationDate": None}); fig.savefig(os.path.join(A.images, "fig_curves.png"), dpi=200); plt.close(fig)
 print("wrote media/fig_curves.pdf")
 
 # ------------------------------------------------------------------ Figure: cooperation margin vs gamma
@@ -253,7 +253,7 @@ if coop:
         ax.plot(g, fv, marker=mk, ms=2.5, lw=0.9, ls=ls, color="k", label=f"$r={c['r']}$")
     ax.set_xlabel("discount $\\gamma$"); ax.set_ylabel("share of stocks where\ndeviating pays")
     ax.set_xlim(0.28, 1.0); ax.legend(frameon=False, fontsize=6.5); fig.tight_layout()
-    fig.savefig(os.path.join(A.out, "media", "fig_coop.pdf")); fig.savefig(os.path.join(A.images, "fig_coop.png"), dpi=200); plt.close(fig)
+    fig.savefig(os.path.join(A.out, "media", "fig_coop.pdf"), metadata={"CreationDate": None}); fig.savefig(os.path.join(A.images, "fig_coop.png"), dpi=200); plt.close(fig)
     print("wrote media/fig_coop.pdf")
 
 # ------------------------------------------------------------------ numbers used in the text
